@@ -44,8 +44,11 @@ fn acceptAndRespond(stream: (TcpStream, SocketAddr), count: Arc<Mutex<i32>>, suc
         return;
     } else {
         let responseToSend = openFileFromPath(&requestedPath, &count, &success);
-        let responseAsBytes = responseToSend.as_bytes();
+        let responseAsBytes = responseToSend.0.as_bytes();
         mutStream.write(responseAsBytes);
+        println!("{:?}",&responseToSend.1);
+        mutStream.write(&responseToSend.1);
+
 //        println!("Serving {}", requestedPath);
     }
     let mut success = success.lock().unwrap();
@@ -69,8 +72,9 @@ fn getPathFromGET(getRequest: &String) -> String {
     return index.to_string();
 }
 
-fn openFileFromPath(path: &String, completed: &MutexGuard<i32>, success: &Arc<Mutex<i32>>) -> String {
+fn openFileFromPath(path: &String, completed: &MutexGuard<i32>, success: &Arc<Mutex<i32>>) -> (String,Vec<u8>) {
     let mutPath = &path;
+    println!("{}", mutPath);
     let mut relPath = "www".to_string() + mutPath;
     let mut file = File::open(relPath);
     match file {
@@ -78,13 +82,15 @@ fn openFileFromPath(path: &String, completed: &MutexGuard<i32>, success: &Arc<Mu
             let mut success = success.lock().unwrap();
             *success += 1;
             let mut mutE = e;
+            let mut byteBuff = Vec::new();
             let mut buf: String = "HTTP/1.1 200 OK\nCount:".to_string() + &completed.to_string() + "\nSuccessful:" + &success.to_string() + "\n\n";
-            let asVec = File::read_to_string(&mut mutE, &mut buf);
-            return buf;
+            let asVec = File::read_to_end(&mut mutE, &mut byteBuff);
+            println!("{:?}", byteBuff);
+            return (buf,byteBuff);
         }
         Err(e) => {
             let mut success = success.lock().unwrap();
-            return "HTTP/1.1 404 Not Found\nCount:".to_string() + &completed.to_string() + "\nSuccessful:" + &success.to_string() + "\n\n<html><body><h1>Error 404 </h1></body></html>";
+            return ("HTTP/1.1 404 Not Found\nCount:".to_string() + &completed.to_string() + "\nSuccessful:" + &success.to_string() + "\n\n<html><body><h1>Error 404 </h1></body></html>", Vec::new());
         }
     }
 }
