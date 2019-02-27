@@ -7,8 +7,6 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::str;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
-extern crate regex;
-use regex::Regex;
 fn main() -> io::Result<()> {
     // let betweenME = "GET /hello.htm HTTP/1.1";
     // let hmm = betweenGetHTTP(betweenME);
@@ -32,37 +30,41 @@ fn main() -> io::Result<()> {
 }
 
 fn acceptAndRespond(stream: (TcpStream, SocketAddr), count: Arc<Mutex<i32>>, success: Arc<Mutex<i32>>) {
-    let mut count = count.lock().unwrap();
-
+    
     let mut mutStream = stream.0;
     let socketAddr = stream.1;
     let getRequest = get_GET_request(&mut mutStream);
     let actualRequest = betweenGetHTTP(&getRequest);
-    // println!("Actual request: {}", &actualRequest);
-    // println!("Our get request is {}", &actualRequest);
-    // let requestedPath = getPathFromGET(&getRequest);
     let multiRequest = getMultiplePaths(&actualRequest);
     // println!("{:?}", multiRequest);
     for requestedPath in multiRequest{
-        // println!("Currently requested page is : {}", requestedPath);
-        if requestedPath.contains("../") {
-            let mut success = success.lock().unwrap();
-            let returnMe: String = "HTTP/1.1 403 Forbidden\nCount:".to_string() + &count.to_string() + "\nSuccessful: " + &success.to_string() + "\n\n<html><body><h1>Error 403</h1></body></html>";
-            mutStream.write(returnMe.as_bytes());
+            let count = count.clone();
+            let success = success.clone();
+            let mut mutStream = mutStream.try_clone().unwrap();
+        thread::spawn(move||{
+            let mut count = count.lock().unwrap();
+            if requestedPath.contains("../") {
+                let mut success = success.lock().unwrap();
+                let returnMe: String = "HTTP/1.1 403 Forbidden\nCount:".to_string() + &count.to_string() + "\nSuccessful: " + &success.to_string() + "\n\n<html><body><h1>Error 403</h1></body></html>";
+                mutStream.write(returnMe.as_bytes());
             return;
-    } else {
-        // println!("Opening {}", &requestedPath);
-        let responseToSend = openFileFromPath(&requestedPath, &count, &success);
-        let responseAsBytes = responseToSend.0.as_bytes();
-        mutStream.write(responseAsBytes);
-        // println!("{:?}",&responseToSend.1);
-        mutStream.write(&responseToSend.1);
+            }else {
+                // let mut count = count.lock().unwrap();                
+                let responseToSend = openFileFromPath(&requestedPath, &count, &success);
+                let responseAsBytes = responseToSend.0.as_bytes();
+                mutStream.write(responseAsBytes);
+                mutStream.write(&responseToSend.1);
+            }
+            println!("Completed!");
+            let mut success = success.lock().unwrap();
+            println!("Locked success!");
+            // let mut count = count.lock().unwrap();
+            println!("Locked count!");
 
-//        println!("Serving {}", requestedPath);
-    }
-    let mut success = success.lock().unwrap();
-        *count += 1;
-    println!("Total number of requests: {}. Proper requests: {}", *count, *success);
+            *count += 1;
+            // println!("Done Proper requests: {}", *success);
+            println!("Total number of requests: {}. Proper requests: {}", *count, *success);
+        });
     }
 }
 
