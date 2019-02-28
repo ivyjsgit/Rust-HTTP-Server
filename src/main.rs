@@ -9,20 +9,19 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 extern crate regex;
 use regex::Regex;
+use std::collections::HashMap;
 fn main() -> io::Result<()> {
-    // let betweenME = "GET /hello.htm HTTP/1.1";
-    // let hmm = betweenGetHTTP(betweenME);
-    // println!("{}",hmm);
+    let cache: Arc<Mutex<HashMap<String,Vec<u8>>>> = Arc::new(Mutex::new(HashMap::new()));
     let count = Arc::new(Mutex::new(0));
     let success = Arc::new(Mutex::new(0));
-
     let listener = TcpListener::bind("127.0.0.1:8888")?;
     loop {
         for stream in listener.accept() {
+            let cache = cache.clone();
             let count = count.clone();
             let success = success.clone();
             thread::spawn(move || {
-                acceptAndRespond(stream, count, success);
+                acceptAndRespond(stream, count, success, cache);
             //    println!("Spawned a thread!");
             });
         }
@@ -31,7 +30,7 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn acceptAndRespond(stream: (TcpStream, SocketAddr), count: Arc<Mutex<i32>>, success: Arc<Mutex<i32>>) {
+fn acceptAndRespond(stream: (TcpStream, SocketAddr), count: Arc<Mutex<i32>>, success: Arc<Mutex<i32>>, cache: Arc<Mutex<HashMap<String,Vec<u8>>>>) {
     let mut count = count.lock().unwrap();
 
     let mut mutStream = stream.0;
@@ -52,7 +51,7 @@ fn acceptAndRespond(stream: (TcpStream, SocketAddr), count: Arc<Mutex<i32>>, suc
             return;
     } else {
         // println!("Opening {}", &requestedPath);
-        let responseToSend = openFileFromPath(&requestedPath, &count, &success);
+        let responseToSend = openFileFromPath(&requestedPath, &count, &success, &cache);
         let responseAsBytes = responseToSend.0.as_bytes();
         mutStream.write(responseAsBytes);
         // println!("{:?}",&responseToSend.1);
@@ -84,27 +83,42 @@ fn getPathFromGET(getRequest: &String) -> String {
     return index.to_string();
 }
 
-fn openFileFromPath(path: &String, completed: &MutexGuard<i32>, success: &Arc<Mutex<i32>>) -> (String,Vec<u8>) {
+fn openFileFromPath(path: &String, completed: &MutexGuard<i32>, success: &Arc<Mutex<i32>>, cache: &Arc<Mutex<HashMap<String,Vec<u8>>>>) -> (String,Vec<u8>) {
+
     let mutPath = &path;
-    // println!("{}", mutPath);
     let mut relPath = "www".to_string() + mutPath;
-    let mut file = File::open(relPath);
-    match file {
-        Ok(e) => {
-            let mut success = success.lock().unwrap();
-            *success += 1;
-            let mut mutE = e;
-            let mut byteBuff = Vec::new();
-            let mut buf: String = "HTTP/1.1 200 OK\nCount:".to_string() + &completed.to_string() + "\nSuccessful:" + &success.to_string() + "\n\n";
-            let asVec = File::read_to_end(&mut mutE, &mut byteBuff);
-            // println!("{:?}", byteBuff);
-            return (buf,byteBuff);
+    let mut cache = cache.lock().unwrap();
+    println!("{:?}", cache.keys());
+    if !cache.contains_key(&relPath){
+        println!("Insert into cache");
+            let mut file = File::open(&relPath);
+            match file {
+            Ok(e) => {
+                let mut success = success.lock().unwrap();
+                *success += 1;
+                let mut mutE = e;
+                let mut byteBuff = Vec::new();
+                let mut buf: String = "HTTP/1.1 200 OK\nCount:".to_string() + &completed.to_string() + "\nSuccessful:" + &success.to_string() + "\n\n";
+                let asVec = File::read_to_end(&mut mutE, &mut byteBuff);
+                // println!("{:?}", byteBuff);
+                cache.insert(relPath.clone(), byteBuff);
+                return (buf, cache.get(&relPath).unwrap().to_vec());
+                // return (buf,byteBuff);
+            }
+            Err(e) => {
+                let mut success = success.lock().unwrap();
+                return ("HTTP/1.1 404 Not Found\nCount:".to_string() + &completed.to_string() + "\nSuccessful:" + &success.to_string() + "\n\n<html><body><h1>Error 404 </h1></body></html>", Vec::new());
+            }
         }
-        Err(e) => {
-            let mut success = success.lock().unwrap();
-            return ("HTTP/1.1 404 Not Found\nCount:".to_string() + &completed.to_string() + "\nSuccessful:" + &success.to_string() + "\n\n<html><body><h1>Error 404 </h1></body></html>", Vec::new());
-        }
+    }else{
+        println!("Should read from cache");
+        let filePathFromCache = cache.get(&relPath).expect("Couldn't get from cache");
+        let mut file = filePathFromCache;
+        let mut success = success.lock().unwrap();
+        let mut buf: String = "HTTP/1.1 200 OK\nCount:".to_string() + &completed.to_string() + "\nSuccessful:" + &success.to_string() + "\n\n";
+        return(buf, cache.get(&relPath).unwrap().to_vec());
     }
+
 }
 fn getMultiplePaths(getRequest: &String) -> Vec<String> {
     // println!("{}", getRequest);
