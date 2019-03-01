@@ -6,3 +6,4 @@ edition = "2018"
 
 [dependencies]
 regex = "0.2"
+quickersort = "2.1.0"
