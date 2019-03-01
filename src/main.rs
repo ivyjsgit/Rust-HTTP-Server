@@ -10,13 +10,9 @@ use std::thread;
 extern crate regex;
 use regex::Regex;
 fn main() -> io::Result<()> {
-    // let betweenME = "GET /hello.htm HTTP/1.1";
-    // let hmm = betweenGetHTTP(betweenME);
-    // println!("{}",hmm);
     let count = Arc::new(Mutex::new(0));
     let success = Arc::new(Mutex::new(0));
-
-    let listener = TcpListener::bind("127.0.0.1:8888")?;
+    let listener = TcpListener::bind("0.0.0.0:8888")?;
     loop {
         for stream in listener.accept() {
             let count = count.clone();
